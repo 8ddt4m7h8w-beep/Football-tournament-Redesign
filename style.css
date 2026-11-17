@@ -304,3 +304,69 @@ h1 em,.eyebrow{color:var(--school-burgundy)}
 .footer span{color:#626D7D}
 .text-button{background:var(--school-grey);color:var(--school-steel);border-color:var(--school-blue)}
 .toast{background:var(--school-steel);color:var(--school-milk)}
+
+
+/* FINAL LIGHT SCHOOL EDITION · clarity + motion */
+body{background:radial-gradient(circle at 92% 4%,rgba(150,166,182,.24),transparent 28%),var(--school-milk,#F5F2E1);color:#1E2945}
+.topbar{position:relative}
+.brand-logo{width:56px;height:56px;flex:0 0 56px;padding:7px;border-radius:15px;background:#E2E2E4;border:1px solid #96A6B6;box-shadow:0 5px 16px rgba(30,41,69,.12);object-fit:contain}
+.topbar .eyebrow{color:#3C1122}
+.hero{background:linear-gradient(115deg,#1E2945 0%,#35435E 72%,#3C1122 125%);border:1px solid #96A6B6;box-shadow:0 14px 32px rgba(30,41,69,.16)}
+.hero-orbit{border-color:rgba(245,242,225,.22)}
+.tabs{grid-template-columns:repeat(3,minmax(0,1fr));background:#E2E2E4;border:1px solid #C5C5C8;box-shadow:0 7px 20px rgba(30,41,69,.07)}
+.tab{color:#1E2945;min-width:0;min-height:60px;line-height:1.2;white-space:normal;overflow-wrap:anywhere}
+.tab span{color:#3C1122}
+.tab.active{background:#1E2945;color:#F5F2E1;box-shadow:0 5px 13px rgba(30,41,69,.2)}
+.tab.active span{color:#F5F2E1}
+.section-head h2{color:#1E2945}
+.tag{color:#1E2945;background:#E2E2E4;border-color:#96A6B6}
+.scorers-list{gap:10px}
+.scorer-row{background:#E2E2E4!important;border:1px solid #C5C5C8!important;color:#1E2945!important;box-shadow:0 6px 16px rgba(30,41,69,.07)!important}
+.scorer-rank{color:#3C1122!important}
+.scorer-name,.scorer-profile-button{color:#1E2945!important}
+.scorer-team{color:#596579!important}
+.scorer-stat{background:#F5F2E1!important;border-color:rgba(30,41,69,.15)!important}
+.scorer-stat .stat-number{color:#1E2945!important}
+.scorer-stat .stat-caption{color:#596579!important}
+.scorer-goals{border-bottom-color:#3C1122}
+.scorer-assists{border-bottom-color:#96A6B6}
+.goal-btn{background:#F5F2E1;color:#3C1122;border-color:#96A6B6}
+.goal-value{color:#1E2945}
+.regulation-list{gap:12px}
+.regulation-card{background:#E2E2E4!important;border:1px solid #C5C5C8!important;color:#1E2945!important;box-shadow:0 7px 18px rgba(30,41,69,.07)!important}
+.regulation-number{background:#1E2945;color:#F5F2E1}
+.regulation-card h3{color:#1E2945!important}
+.regulation-card p,.regulation-card li{color:#34425A!important;line-height:1.7}
+.regulation-final{background:#1E2945!important;border-color:#96A6B6!important}
+.regulation-final .regulation-number{background:#F5F2E1;color:#3C1122}
+.regulation-final h3,.regulation-final p,.regulation-final li{color:#F5F2E1!important}
+.team-card{background:#E2E2E4!important}
+.team-name-open{background:#F5F2E1;color:#1E2945}
+.team-card-meta{color:#596579}
+.player-name-input{background:#F5F2E1;color:#1E2945}
+.protocol-modal,.profile-modal,.admin-modal{background:#F5F2E1;color:#1E2945}
+@keyframes view-enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes card-enter{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes logo-glint{0%,100%{box-shadow:0 5px 16px rgba(30,41,69,.12)}50%{box-shadow:0 7px 22px rgba(60,17,34,.2)}}
+.view.active{animation:view-enter .36s cubic-bezier(.2,.75,.25,1) both!important}
+.match-card,.team-card,.scorer-row,.regulation-card{animation:card-enter .42s cubic-bezier(.2,.75,.25,1) both!important}
+.match-card:nth-child(2),.team-card:nth-child(2),.scorer-row:nth-child(2),.regulation-card:nth-child(2){animation-delay:45ms!important}
+.match-card:nth-child(3),.team-card:nth-child(3),.scorer-row:nth-child(3),.regulation-card:nth-child(3){animation-delay:90ms!important}
+.match-card:nth-child(4),.team-card:nth-child(4),.scorer-row:nth-child(4),.regulation-card:nth-child(4){animation-delay:135ms!important}
+.brand-logo{animation:logo-glint 5s ease-in-out infinite}
+.tab,.team-name-open,.primary-button,.icon-button,.admin-open,.goal-btn{transition:transform .2s ease,box-shadow .2s ease,background-color .2s ease}
+.tab:active,.team-name-open:active,.primary-button:active,.goal-btn:active{transform:scale(.97)}
+.tab:focus-visible,.team-name-open:focus-visible,.primary-button:focus-visible{outline:3px solid #3C1122;outline-offset:3px}
+@media(max-width:430px){
+ .brand-logo{width:50px;height:50px;flex-basis:50px;padding:6px}
+ .tabs{gap:5px;padding:5px}
+ .tab{min-height:58px;padding:8px 3px;font-size:10px}
+ .scorer-row{grid-template-columns:28px minmax(0,1fr) auto;gap:6px;padding:10px 7px}
+ .scorer-stats{gap:4px}
+ .scorer-stat{min-width:48px;padding:6px 4px}
+ .regulation-card{grid-template-columns:34px minmax(0,1fr);gap:10px;padding:13px}
+ .regulation-card p,.regulation-card li{font-size:12px}
+}
+@media(prefers-reduced-motion:reduce){
+ *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
+}
