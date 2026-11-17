@@ -370,3 +370,24 @@ body{background:radial-gradient(circle at 92% 4%,rgba(150,166,182,.24),transpare
 @media(prefers-reduced-motion:reduce){
  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}
 }
+
+
+/* BRAND COLOR CORRECTION — burgundy, never pink */
+:root{--green:#3C1122}
+.tab.active{background:#1E2945!important;color:#F5F2E1!important;box-shadow:0 5px 15px rgba(30,41,69,.18)!important}
+.tab.active span{color:#F5F2E1!important}
+.hero h2 b,.eyebrow,.standings td:first-child{color:#3C1122}
+.section-head .tag{color:#3C1122}
+.match-status{background:rgba(60,17,34,.1);color:#3C1122}
+.score-input{color:#F5F2E1;border-color:#96A6B6}
+.team-badge{background:#3C1122!important;color:#F5F2E1!important}
+.team-name-open span{color:#3C1122}
+.team-name-open:focus-visible{outline-color:#3C1122}
+.small-delete{background:#3C1122!important;color:#F5F2E1!important;border-color:#3C1122!important}
+.add-player-team{color:#3C1122!important}
+.primary-button{background:#3C1122!important;color:#F5F2E1!important;box-shadow:0 8px 20px rgba(60,17,34,.16)!important}
+.toast{background:#3C1122!important;color:#F5F2E1!important}
+.scorer-rank{color:#3C1122!important}
+.scorer-goals{border-bottom-color:#3C1122!important}
+.scorer-assists{border-bottom-color:#96A6B6!important}
+.regulation-final .regulation-number{color:#3C1122!important}
