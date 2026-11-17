@@ -250,3 +250,5 @@ h1 em{color:#AFC0D4}
  .standings{min-width:560px}
 }
 @media(prefers-reduced-motion:reduce){.team-name-open{transition:none}}
+
+.team-name-edit{width:100%;margin:0 0 10px;background:#111A2E;color:#F5F2E1;border:1px solid #607795}
