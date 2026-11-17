@@ -391,3 +391,6 @@ body{background:radial-gradient(circle at 92% 4%,rgba(150,166,182,.24),transpare
 .scorer-goals{border-bottom-color:#3C1122!important}
 .scorer-assists{border-bottom-color:#96A6B6!important}
 .regulation-final .regulation-number{color:#3C1122!important}
+
+/* English edition: warm beige emphasis */
+.hero h2 b{color:#F5F2E1!important}
