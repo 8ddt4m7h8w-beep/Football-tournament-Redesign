@@ -154,3 +154,8 @@ h1 em{color:var(--green);font-style:normal}
 .protocol-score span:last-child{text-align:right}
 .protocol-score strong{font:900 30px "Barlow Condensed";white-space:nowrap}
 @media(max-width:380px){.match-row{grid-template-columns:minmax(0,1fr) 88px minmax(0,1fr);gap:5px}.score-input{width:37px;height:43px}.team-side{font-size:13px}.protocol-modal{padding:14px}.protocol-score{gap:7px;padding:14px 9px}.protocol-score strong{font-size:25px}}
+
+/* Goal-assist controls and statistics */
+.event-form label[hidden]{display:none!important}
+.event-form #assistField select{min-height:40px}
+.profile-stats{grid-template-columns:repeat(auto-fit,minmax(76px,1fr))}
