@@ -1,8 +1,8 @@
 {
   "name": "Gymnasium Peredelkino Football Championship",
   "short_name": "GP CHAMPIONSHIP",
-  "description": "Official digital hub for the Moscow Gymnasium Peredelkino football tournament",
-  "lang": "en",
+  "description": "Официальный цифровой центр футбольного турнира Московской гимназии Переделкино.",
+  "lang": "ru",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
