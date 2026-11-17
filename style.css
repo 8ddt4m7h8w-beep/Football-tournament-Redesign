@@ -252,3 +252,55 @@ h1 em{color:#AFC0D4}
 @media(prefers-reduced-motion:reduce){.team-name-open{transition:none}}
 
 .team-name-edit{width:100%;margin:0 0 10px;background:#111A2E;color:#F5F2E1;border:1px solid #607795}
+
+
+/* SCHOOL IDENTITY PALETTE — preserve official tournament colors */
+:root{
+ --school-grey:#E2E2E4;--school-milk:#F5F2E1;--school-blue:#96A6B6;
+ --school-steel:#1E2945;--school-lilac:#9D8E93;--school-burgundy:#3C1122;
+}
+body{background:var(--school-milk);color:var(--school-steel)}
+.topbar{border-color:rgba(30,41,69,.18)}
+h1,h1 em{color:var(--school-steel)}
+h1 em,.eyebrow{color:var(--school-burgundy)}
+.hero{background:linear-gradient(125deg,var(--school-steel) 0%,#35445F 62%,var(--school-burgundy) 100%);border:1px solid var(--school-blue)}
+.hero h2,.hero h2 b{color:var(--school-milk)}
+.hero p,.hero-meta{color:var(--school-grey)}
+.hero-orbit{border-color:rgba(226,226,228,.25)}
+.tabs{background:var(--school-grey);border:1px solid rgba(30,41,69,.2)}
+.tab{color:var(--school-steel)}
+.tab.active{background:var(--school-steel);color:var(--school-milk);box-shadow:0 5px 16px rgba(30,41,69,.2)}
+.section-head h2{color:var(--school-steel)}
+.section-head .tag{color:var(--school-burgundy);background:var(--school-grey);border-color:var(--school-blue)}
+.match-card,.team-card,.scorer-row,.regulation-card{background:var(--school-grey);border:1px solid rgba(30,41,69,.2);box-shadow:0 12px 28px rgba(30,41,69,.09)}
+.match-label,.match-bottom,.muted{color:#626D7D}
+.match-status{background:rgba(60,17,34,.1);color:var(--school-burgundy)}
+.match-status.pending{background:rgba(150,166,182,.25);color:var(--school-steel)}
+.team-side{color:var(--school-steel)}
+.score-input{background:var(--school-milk);border-color:var(--school-blue);color:var(--school-steel)}
+.table-wrap{background:var(--school-milk);border-color:var(--school-blue)}
+.standings{background:var(--school-milk);color:var(--school-steel)}
+.standings th{background:var(--school-steel);color:var(--school-milk)}
+.standings td,.standings td:nth-child(2),.standings td:last-child{color:var(--school-steel)}
+.standings td:first-child{color:var(--school-burgundy)}
+.standings tbody tr,.standings tbody tr:nth-child(even),.standings tbody tr:first-child{background:var(--school-milk)}
+.standings td{border-top:1px solid rgba(30,41,69,.16)}
+.table-team-link{color:var(--school-steel)}
+.team-badge{background:var(--school-burgundy);color:var(--school-milk)}
+.team-name-open{background:var(--school-milk);border-color:var(--school-blue);color:var(--school-steel)}
+.team-name-open span{color:var(--school-burgundy)}
+.team-name-open:focus-visible{outline-color:var(--school-burgundy)}
+.team-card-meta{border-color:rgba(30,41,69,.2);color:#626D7D}
+.team-name-edit{background:var(--school-milk);color:var(--school-steel);border-color:var(--school-blue)}
+.player-name-input{background:var(--school-milk);border-color:rgba(30,41,69,.2);color:var(--school-steel)}
+.small-delete{background:var(--school-burgundy);color:var(--school-milk);border-color:var(--school-burgundy)}
+.add-player-team{background:rgba(150,166,182,.18);color:var(--school-steel);border-color:var(--school-blue)}
+.primary-button{background:var(--school-burgundy);color:var(--school-milk);box-shadow:0 8px 20px rgba(60,17,34,.16)}
+.profile-modal,.protocol-modal,.admin-modal{background:var(--school-milk);color:var(--school-steel);border-color:var(--school-blue)}
+.profile-stats>div{background:var(--school-grey);border:1px solid rgba(30,41,69,.18)}
+.profile-stats span,.profile-event small,.profile-team-note{color:#626D7D}
+.profile-player-link{color:var(--school-steel);border-color:var(--school-blue)}
+.footer{border-color:rgba(30,41,69,.2)}
+.footer span{color:#626D7D}
+.text-button{background:var(--school-grey);color:var(--school-steel);border-color:var(--school-blue)}
+.toast{background:var(--school-steel);color:var(--school-milk)}
