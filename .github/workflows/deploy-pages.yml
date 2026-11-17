@@ -33,7 +33,7 @@ jobs:
           const js = fs.readFileSync('app.js', 'utf8');
           const ids = new Set([...html.matchAll(/\bid=["']([^"']+)["']/g)].map(m => m[1]));
           const refs = [...js.matchAll(/getElementById\(["']([^"']+)["']\)/g)].map(m => m[1]);
-          const generated = new Set(['eventForm', 'eventType', 'eventPlayer', 'eventMinute']);
+          const generated = new Set(['eventForm', 'eventType', 'eventPlayer', 'eventAssist', 'assistField', 'eventMinute']);
           const missing = [...new Set(refs)].filter(id => !ids.has(id) && !generated.has(id));
           if (missing.length) { console.error('Missing HTML ids:', missing.join(', ')); process.exit(1); }
           console.log('HTML references OK');
