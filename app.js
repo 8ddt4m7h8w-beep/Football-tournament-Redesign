@@ -3,7 +3,7 @@ const LEGACY_KEY="football-tournament-local-backup";
 const SUPABASE_URL="https://rgjixxsagfnvylwvdpzg.supabase.co";
 const SUPABASE_KEY="sb_publishable_4V3L2HoqXJMOjKiufXmL3w_xM9YppgF";
 const db=window.supabase?.createClient?window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY):null;
-let isAdmin=false,authUser=null,syncTimer=null,lastSavedStamp=null,activeProtocolId=null;
+let isAdmin=false,authUser=null,syncTimer=null,lastSavedStamp=null,activeProtocolId=null,syncAvailable=!!db;
 const initial={teams:[
 {id:"t1",name:"Команда 1",players:[["p1","Шевченко"],["p2","Курбанов"],["p3","Титаренко"],["p4","Буланов"]]},
 {id:"t2",name:"Команда 2",players:[["p5","Сахончик"],["p6","Погорелов"],["p7","Данилов"],["p8","Умаров"]]},
@@ -26,9 +26,11 @@ function save(msg="Сохранено автоматически"){
  clearTimeout(syncTimer);
  syncTimer=setTimeout(async()=>{
   const stamp=new Date().toISOString();lastSavedStamp=stamp;
-  const {error}=await db.from("tournament_state").update({state,updated_at:stamp}).eq("id","main");
-  if(error){lastSavedStamp=null;toast("Ошибка синхронизации: "+error.message);return}
-  toast(msg);
+  try{
+   const {error}=await db.from("tournament_state").update({state,updated_at:stamp}).eq("id","main");
+   if(error){lastSavedStamp=null;syncAvailable=false;toast("Ошибка синхронизации. Проверьте интернет.");return}
+   syncAvailable=true;toast(msg);
+  }catch(error){lastSavedStamp=null;syncAvailable=false;toast("Нет связи с сервером. Изменения не отправлены.");}
  },250);
 }
 function toast(s){let e=document.getElementById("toast");e.textContent=s;e.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>e.classList.remove("show"),1700)}
@@ -104,7 +106,7 @@ function applyAdminUI(){
  const addTeam=document.getElementById("addTeamBtn"),addPlayer=document.getElementById("addPlayerBtn"),importBtn=document.getElementById("importBtn");
  if(addTeam)addTeam.hidden=!isAdmin;if(addPlayer)addPlayer.hidden=!isAdmin;if(importBtn)importBtn.hidden=!isAdmin;
  const b=document.getElementById("adminBtn");if(b)b.setAttribute("aria-label",isAdmin?"Панель администратора":"Вход администратора");
- const status=document.getElementById("syncStatus");if(status)status.textContent=isAdmin?"Вы вошли как администратор · изменения общие":"Публичный просмотр · данные синхронизируются";
+ const status=document.getElementById("syncStatus");if(status)status.textContent=isAdmin?"Вы вошли как администратор · изменения общие":(syncAvailable?"Публичный просмотр · данные синхронизируются":"Офлайн-режим · показана сохранённая копия");
 }
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));document.querySelectorAll(".view").forEach(x=>x.classList.toggle("active",x.id==="view-"+b.dataset.tab))});
 document.getElementById("addTeamBtn").onclick=()=>{state.teams.push({id:uid("t"),name:"Новая команда",players:[]});save();renderAll()};
@@ -133,23 +135,25 @@ document.getElementById("adminLoginForm").onsubmit=async e=>{
 };
 document.getElementById("adminLogout").onclick=async()=>{await db.auth.signOut();authUser=null;isAdmin=false;document.getElementById("adminPassword").value="";document.getElementById("adminTitle").textContent="Вход администратора";document.getElementById("adminLogout").hidden=true;adminModal.hidden=true;renderAll();toast("Вы вышли из панели");};
 async function bootShared(){
- if(!db){document.getElementById("syncStatus").textContent="Офлайн-режим · показана сохранённая копия";renderAll();return}
- const {data,error}=await db.from("tournament_state").select("state,updated_at").eq("id","main").single();
- if(error){document.getElementById("syncStatus").textContent="Нет связи с сервером · показана сохранённая копия";console.error(error);renderAll();return}
- const localState=(()=>{try{return JSON.parse(localStorage.getItem(KEY))}catch(e){return null}})();
- if(localState&&JSON.stringify(localState)!==JSON.stringify(initial)&&!localStorage.getItem(LEGACY_KEY)){try{localStorage.setItem(LEGACY_KEY,JSON.stringify(localState))}catch(e){}}
- state=normalizeState(data.state);
- try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
- if(localStorage.getItem(LEGACY_KEY))toast("Старая копия сохранена на этом устройстве — нажмите ↗, чтобы выгрузить её");
- const {data:sessionData}=await db.auth.getSession();
- if(sessionData?.session){authUser=sessionData.session.user;const {data:allowed}=await db.from("tournament_admins").select("user_id").eq("user_id",authUser.id).maybeSingle();isAdmin=!!allowed;}
- db.channel("tournament-live").on("postgres_changes",{event:"UPDATE",schema:"public",table:"tournament_state",filter:"id=eq.main"},payload=>{
-  if(payload.new.updated_at===lastSavedStamp)return;
-  state=normalizeState(payload.new.state);
+ if(!db){syncAvailable=false;document.getElementById("syncStatus").textContent="Офлайн-режим · показана сохранённая копия";renderAll();return}
+ try{
+  const {data,error}=await db.from("tournament_state").select("state,updated_at").eq("id","main").single();
+  if(error){syncAvailable=false;document.getElementById("syncStatus").textContent="Нет связи с сервером · показана сохранённая копия";console.error(error);renderAll();return}
+  const localState=(()=>{try{return JSON.parse(localStorage.getItem(KEY))}catch(e){return null}})();
+  if(localState&&JSON.stringify(localState)!==JSON.stringify(initial)&&!localStorage.getItem(LEGACY_KEY)){try{localStorage.setItem(LEGACY_KEY,JSON.stringify(localState))}catch(e){}}
+  state=normalizeState(data.state);syncAvailable=true;
   try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
-  renderAll();toast("Результаты турнира обновлены");
- }).subscribe();
- renderAll();
+  if(localStorage.getItem(LEGACY_KEY))toast("Старая копия сохранена на этом устройстве — нажмите ↗, чтобы выгрузить её");
+  const {data:sessionData}=await db.auth.getSession();
+  if(sessionData?.session){authUser=sessionData.session.user;const {data:allowed}=await db.from("tournament_admins").select("user_id").eq("user_id",authUser.id).maybeSingle();isAdmin=!!allowed;}
+  db.channel("tournament-live").on("postgres_changes",{event:"UPDATE",schema:"public",table:"tournament_state",filter:"id=eq.main"},payload=>{
+   if(payload.new.updated_at===lastSavedStamp)return;
+   state=normalizeState(payload.new.state);
+   try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+   renderAll();toast("Результаты турнира обновлены");
+  }).subscribe(status=>{if(status==="CHANNEL_ERROR"||status==="TIMED_OUT"){syncAvailable=false;applyAdminUI()}else if(status==="SUBSCRIBED"){syncAvailable=true;applyAdminUI()}});
+  renderAll();
+ }catch(error){syncAvailable=false;console.error(error);document.getElementById("syncStatus").textContent="Нет связи с сервером · показана сохранённая копия";renderAll();}
 }
 if(db)db.auth.onAuthStateChange((event,session)=>{if(event==="SIGNED_OUT"){isAdmin=false;authUser=null;renderAll()}});
 
