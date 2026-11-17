@@ -31,8 +31,8 @@ jobs:
           const fs = require('fs');
           const html = fs.readFileSync('index.html', 'utf8');
           const js = fs.readFileSync('app.js', 'utf8');
-          const ids = new Set([...html.matchAll(/\\bid=["']([^"']+)["']/g)].map(m => m[1]));
-          const refs = [...js.matchAll(/getElementById\\(["']([^"']+)["']\\)/g)].map(m => m[1]);
+          const ids = new Set([...html.matchAll(/\bid=["']([^"']+)["']/g)].map(m => m[1]));
+          const refs = [...js.matchAll(/getElementById\(["']([^"']+)["']\)/g)].map(m => m[1]);
           const generated = new Set(['eventForm', 'eventType', 'eventPlayer', 'eventMinute']);
           const missing = [...new Set(refs)].filter(id => !ids.has(id) && !generated.has(id));
           if (missing.length) { console.error('Missing HTML ids:', missing.join(', ')); process.exit(1); }
