@@ -394,3 +394,10 @@ body{background:radial-gradient(circle at 92% 4%,rgba(150,166,182,.24),transpare
 
 /* English edition: warm beige emphasis */
 .hero h2 b{color:#F5F2E1!important}
+
+
+/* Header refinement: unified championship title + slightly stronger school header */
+h1,h1 em{color:#1E2945!important;font-weight:900;}
+.topbar{padding:21px 12px 18px;border-bottom:2px solid rgba(30,41,69,.28);margin-bottom:12px;}
+.topbar .eyebrow{font-weight:900;letter-spacing:1.25px;}
+@media(max-width:430px){.topbar{padding:18px 8px 16px;}}
