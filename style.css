@@ -254,3 +254,9 @@ h1 em{color:var(--green);font-style:normal}
  .goals-control{gap:4px;padding:5px}
 }
 @media(prefers-reduced-motion:reduce){.hero-orbit{animation:none}}
+
+
+/* Minimal match presentation: remove redundant helper copy */
+.match-insight,.open-protocol-hint,.playoff-note,.table-note{display:none!important}
+.match-bottom{padding-top:10px}
+.match-label{letter-spacing:1.15px}
