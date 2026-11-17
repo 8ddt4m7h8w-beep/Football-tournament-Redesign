@@ -1,0 +1,129 @@
+const KEY="football-tournament-v1";
+const LEGACY_KEY="football-tournament-local-backup";
+const SUPABASE_URL="https://rgjixxsagfnvylwvdpzg.supabase.co";
+const SUPABASE_KEY="sb_publishable_4V3L2HoqXJMOjKiufXmL3w_xM9YppgF";
+const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let isAdmin=false,authUser=null,syncTimer=null,lastSavedStamp=null;
+const initial={teams:[
+{id:"t1",name:"Команда 1",players:[["p1","Шевченко"],["p2","Курбанов"],["p3","Титаренко"],["p4","Буланов"]]},
+{id:"t2",name:"Команда 2",players:[["p5","Сахончик"],["p6","Погорелов"],["p7","Данилов"],["p8","Умаров"]]},
+{id:"t3",name:"Команда 3",players:[["p9","Базаев"],["p10","Мухтаров"],["p11","Абубикаров"],["p12","Андреев"]]},
+{id:"t4",name:"Команда 4",players:[["p13","Найдёнов"],["p14","Терехов"],["p15","Мнацаканян"]]}].map(t=>({...t,players:t.players.map(([id,name])=>({id,name,goals:0}))})),
+matches:[["m1","t1","t2"],["m2","t3","t4"],["m3","t2","t3"],["m4","t4","t1"],["m5","t2","t4"],["m6","t1","t3"]].map((x,i)=>({id:x[0],a:x[1],b:x[2],label:"Матч "+(i+1),day:"Среда / пятница · 7-й урок",minutes:10,scoreA:null,scoreB:null,events:[]})),
+playoff:{sf1:{scoreA:null,scoreB:null,winner:null},sf2:{scoreA:null,scoreB:null,winner:null},third:{scoreA:null,scoreB:null,winner:null},final:{scoreA:null,scoreB:null,winner:null}}};
+let state=structuredClone(initial);try{state=JSON.parse(localStorage.getItem(KEY))||structuredClone(initial)}catch(e){state=structuredClone(initial)}
+state.matches.forEach(m=>{if(!Array.isArray(m.events))m.events=[]});
+function save(msg="Сохранено автоматически"){
+ try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+ if(!isAdmin){toast("Изменения доступны только администратору");return}
+ clearTimeout(syncTimer);
+ syncTimer=setTimeout(async()=>{
+  const stamp=new Date().toISOString();lastSavedStamp=stamp;
+  const {error}=await db.from("tournament_state").update({state,updated_at:stamp}).eq("id","main");
+  if(error){lastSavedStamp=null;toast("Ошибка синхронизации: "+error.message);return}
+  toast(msg);
+ },250);
+}
+function toast(s){let e=document.getElementById("toast");e.textContent=s;e.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>e.classList.remove("show"),1700)}
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const team=id=>state.teams.find(t=>t.id===id), name=id=>team(id)?.name||"—", done=m=>Number.isInteger(m.scoreA)&&Number.isInteger(m.scoreB);
+function renderMatches(){let el=document.getElementById("matchesList");el.innerHTML=state.matches.map(m=>`<article class="match-card" data-open-match="${m.id}" tabindex="0" role="button" aria-label="Открыть протокол ${esc(m.label)}"><div class="match-top"><span class="match-label">${esc(m.label)} · Среда / пятница · 7-й урок</span><span class="match-status ${done(m)?"":"pending"}">${done(m)?"ЗАВЕРШЁН":"ОЖИДАЕТСЯ"}</span></div><div class="match-row"><div class="team-side">${esc(name(m.a))}</div><div class="score-box"><input class="score-input" type="number" min="0" max="99" inputmode="numeric" placeholder="–" aria-label="Голы ${esc(name(m.a))}" value="${m.scoreA??""}" data-match="${m.id}" data-side="A" ${isAdmin?"":"disabled"}><span class="score-sep">:</span><input class="score-input" type="number" min="0" max="99" inputmode="numeric" placeholder="–" aria-label="Голы ${esc(name(m.b))}" value="${m.scoreB??""}" data-match="${m.id}" data-side="B" ${isAdmin?"":"disabled"}></div><div class="team-side right">${esc(name(m.b))}</div></div><div class="match-bottom"><span>⏱ ${m.minutes||10} минут · ${m.events?.length||0} событий</span>${isAdmin?`<button class="clear-score" data-clear="${m.id}">Сбросить счёт</button>`:""}</div><div class="open-protocol-hint">Нажмите, чтобы открыть протокол матча →</div></article>`).join("");
+el.querySelectorAll("[data-open-match]").forEach(card=>{card.onclick=e=>{if(e.target.closest("input,button"))return;openProtocol(card.dataset.openMatch)};card.onkeydown=e=>{if((e.key==="Enter"||e.key===" ")&&e.target===card){e.preventDefault();openProtocol(card.dataset.openMatch)}}});
+el.querySelectorAll("[data-match]").forEach(inp=>inp.addEventListener("change",()=>{let m=state.matches.find(m=>m.id===inp.dataset.match),v=inp.value.trim();m["score"+inp.dataset.side]=v===""?null:Math.max(0,Math.min(99,parseInt(v)||0));save();renderAll()}));
+el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>{let m=state.matches.find(m=>m.id===b.dataset.clear);m.scoreA=m.scoreB=null;save();renderAll()})}
+function standings(){let rows=state.teams.map(t=>({id:t.id,name:t.name,I:0,V:0,N:0,P:0,ZM:0,PM:0,RM:0,O:0})),map=Object.fromEntries(rows.map(r=>[r.id,r]));state.matches.forEach(m=>{if(!done(m)||!map[m.a]||!map[m.b])return;let a=map[m.a],b=map[m.b];a.I++;b.I++;a.ZM+=m.scoreA;a.PM+=m.scoreB;b.ZM+=m.scoreB;b.PM+=m.scoreA;if(m.scoreA>m.scoreB){a.V++;b.P++;a.O+=3}else if(m.scoreA<m.scoreB){b.V++;a.P++;b.O+=3}else{a.N++;b.N++;a.O++;b.O++}});rows.forEach(r=>r.RM=r.ZM-r.PM);return rows.sort((a,b)=>b.O-a.O||b.RM-a.RM||b.ZM-a.ZM||a.name.localeCompare(b.name,"ru"))}
+function renderTable(){document.getElementById("standingsBody").innerHTML=standings().map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.name)}</td><td>${r.I}</td><td>${r.V}</td><td>${r.N}</td><td>${r.P}</td><td>${r.ZM}</td><td>${r.PM}</td><td>${r.RM>0?"+"+r.RM:r.RM}</td><td>${r.O}</td></tr>`).join("")}
+function seeds(){let r=standings();return state.matches.every(done)&&r.length>=4?r.slice(0,4).map(x=>x.id):null}
+function winner(m,ids){if(m.winner&&ids.includes(m.winner))return m.winner;if(Number.isInteger(m.scoreA)&&Number.isInteger(m.scoreB)&&m.scoreA!==m.scoreB)return m.scoreA>m.scoreB?ids[0]:ids[1];return null}
+function playoffData(){let s=seeds();if(!s)return null;let p=state.playoff,a=[s[0],s[3]],b=[s[1],s[2]],w1=winner(p.sf1,a),w2=winner(p.sf2,b);return {sf1:{a:a[0],b:a[1]},sf2:{a:b[0],b:b[1]},final:{a:w1,b:w2},third:{a:w1?(w1===a[0]?a[1]:a[0]):null,b:w2?(w2===b[0]?b[1]:b[0]):null}}}
+function playoffCard(key,label,ids){let m=state.playoff[key];if(!ids?.a||!ids?.b)return `<article class="match-card"><div class="match-top"><span class="match-label">${label}</span><span class="match-status pending">ОЖИДАЕТСЯ</span></div><div class="empty">Завершите основные матчи и полуфиналы.</div></article>`;let tie=done(m)&&m.scoreA===m.scoreB,w=winner(m,[ids.a,ids.b]);return `<article class="match-card"><div class="match-top"><span class="match-label">${label}</span><span class="match-status ${w?"":"pending"}">${w?"ПОБЕДИТЕЛЬ ОПРЕДЕЛЁН":"ПЛЕЙ-ОФФ"}</span></div><div class="match-row"><div class="team-side">${esc(name(ids.a))}</div><div class="score-box"><input class="score-input" type="number" min="0" max="99" inputmode="numeric" placeholder="–" value="${m.scoreA??""}" data-play="${key}" data-side="A" ${isAdmin?"":"disabled"}><span class="score-sep">:</span><input class="score-input" type="number" min="0" max="99" inputmode="numeric" placeholder="–" value="${m.scoreB??""}" data-play="${key}" data-side="B" ${isAdmin?"":"disabled"}></div><div class="team-side right">${esc(name(ids.b))}</div></div>${tie&&isAdmin?`<div class="match-bottom"><span>Выберите победителя при ничьей:</span><button class="text-button" data-winner="${key}" data-team="${ids.a}">${esc(name(ids.a))}</button><button class="text-button" data-winner="${key}" data-team="${ids.b}">${esc(name(ids.b))}</button></div>`:""}<div class="match-bottom"><span>${w?"Победитель: "+esc(name(w)):"Счёт сохраняется автоматически"}</span>${isAdmin?`<button class="clear-score" data-pclear="${key}">Сбросить</button>`:""}</div></article>`}
+function renderPlayoff(){let el=document.getElementById("playoffList"),p=playoffData();if(!p){el.innerHTML='<div class="match-card"><div class="empty">Плей-офф доступен после ввода счёта во всех 6 основных матчах.</div></div>';return}el.innerHTML=playoffCard("sf1","Полуфинал · 1-е vs 4-е",p.sf1)+playoffCard("sf2","Полуфинал · 2-е vs 3-е",p.sf2)+playoffCard("third","Матч за 3-е место",p.third)+playoffCard("final","ФИНАЛ",p.final);
+el.querySelectorAll("[data-play]").forEach(inp=>inp.addEventListener("change",()=>{let m=state.playoff[inp.dataset.play],v=inp.value.trim();m["score"+inp.dataset.side]=v===""?null:Math.max(0,Math.min(99,parseInt(v)||0));m.winner=null;save();renderAll()}));el.querySelectorAll("[data-winner]").forEach(b=>b.onclick=()=>{state.playoff[b.dataset.winner].winner=b.dataset.team;save();renderAll()});el.querySelectorAll("[data-pclear]").forEach(b=>b.onclick=()=>{state.playoff[b.dataset.pclear]={scoreA:null,scoreB:null,winner:null};save();renderAll()})}
+function findPlayer(id){for(let t of state.teams){let p=t.players.find(p=>p.id===id);if(p)return {team:t,player:p}}return null}
+function uid(prefix){return prefix+"_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,6)}
+function renderTeams(){let el=document.getElementById("teamsList");el.innerHTML=state.teams.map((t,i)=>`<article class="team-card"><div class="team-title-row"><span class="team-badge">${String(i+1).padStart(2,"0")}</span><input class="team-name-input" value="${esc(t.name)}" aria-label="Название команды" ${isAdmin?"":"readonly"} data-teamname="${t.id}">${isAdmin?`<button class="small-delete" data-delteam="${t.id}" title="Удалить команду">×</button>`:""}</div>${t.players.map(p=>`<div class="player-row"><input class="player-name-input" value="${esc(p.name)}" aria-label="Имя игрока" ${isAdmin?"":"readonly"} data-playername="${p.id}">${isAdmin?`<button class="small-delete" data-delplayer="${t.id}:${p.id}" title="Удалить игрока">×</button>`:""}</div>`).join("")}${isAdmin?`<button class="add-player-team" data-addplayer="${t.id}">＋ Добавить игрока в состав</button>`:""}</article>`).join("");
+el.querySelectorAll("[data-teamname]").forEach(inp=>inp.onchange=()=>{team(inp.dataset.teamname).name=inp.value.trim()||"Команда";save();renderAll()});el.querySelectorAll("[data-playername]").forEach(inp=>inp.onchange=()=>{let f=findPlayer(inp.dataset.playername);if(f){f.player.name=inp.value.trim()||"Игрок";save();renderAll()}});el.querySelectorAll("[data-delplayer]").forEach(b=>b.onclick=()=>{let [tid,pid]=b.dataset.delplayer.split(":"),t=team(tid);t.players=t.players.filter(p=>p.id!==pid);save();renderAll()});el.querySelectorAll("[data-addplayer]").forEach(b=>b.onclick=()=>{team(b.dataset.addplayer).players.push({id:uid("p"),name:"Новый игрок",goals:0});save();renderAll()});el.querySelectorAll("[data-delteam]").forEach(b=>b.onclick=()=>{if(state.teams.length<=2){toast("Оставьте минимум две команды");return}if(!confirm("Удалить команду и её игроков?"))return;let id=b.dataset.delteam;state.teams=state.teams.filter(t=>t.id!==id);state.matches=state.matches.filter(m=>m.a!==id&&m.b!==id);save();renderAll()})}
+function goalsFor(playerId){let fromMatches=state.matches.reduce((n,m)=>n+(m.events||[]).filter(e=>e.type==="goal"&&e.playerId===playerId).length,0);return fromMatches+(findPlayer(playerId)?.player.goals||0)}
+function cardCounts(playerId,type){return state.matches.reduce((n,m)=>n+(m.events||[]).filter(e=>e.type===type&&e.playerId===playerId).length,0)}
+function renderScorers(){let all=[];state.teams.forEach(t=>t.players.forEach(p=>all.push({t,p,goals:goalsFor(p.id)})));all.sort((a,b)=>b.goals-a.goals||a.p.name.localeCompare(b.p.name,"ru"));let el=document.getElementById("scorersList");el.innerHTML=all.length?all.map((x,i)=>`<div class="scorer-row"><div class="scorer-rank">${i+1}</div><div><div class="scorer-name">${esc(x.p.name)}</div><div class="scorer-team">${esc(x.t.name)}</div></div><div class="goals-control">${isAdmin?`<button class="goal-btn" data-goal="${x.p.id}" data-delta="-1" aria-label="Уменьшить голы">−</button><span class="goal-value">${x.goals}</span><button class="goal-btn" data-goal="${x.p.id}" data-delta="1" aria-label="Добавить гол">+</button>`:`<span class="goal-value">${x.goals}</span>`}</div></div>`).join(""):'<div class="empty">Добавьте игроков в составы команд.</div>';el.querySelectorAll("[data-goal]").forEach(b=>b.onclick=()=>{let f=findPlayer(b.dataset.goal);if(f){f.player.goals=Math.max(0,f.player.goals+Number(b.dataset.delta));save();renderScorers()}})}
+function eventLabel(e){return e.type==="goal"?"Гол":e.type==="yellow"?"Жёлтая карточка":"Красная карточка"}
+function openProtocol(matchId){let m=state.matches.find(x=>x.id===matchId);if(!m)return;document.getElementById("protocolModal").hidden=false;renderProtocol(m)}
+function renderProtocol(m){
+ let players=state.teams.filter(t=>t.id===m.a||t.id===m.b).flatMap(t=>t.players.map(p=>({team:t,player:p})));
+ let opts=players.map(x=>'<option value="'+esc(x.player.id)+'">'+esc(x.player.name)+' · '+esc(x.team.name)+'</option>').join("");
+ let events=(m.events||[]).map((e,i)=>{
+  let f=findPlayer(e.playerId),symbol=e.type==="goal"?"⚽":e.type==="yellow"?"🟨":"🟥";
+  return '<div class="protocol-event"><span class="event-symbol">'+symbol+'</span><div class="event-copy"><strong>'+esc(f?.player.name||"Игрок удалён")+'</strong><small>'+esc(f?.team.name||"")+' · '+esc(eventLabel(e))+(e.minute?' · '+esc(e.minute)+'′':'')+'</small></div>'+(isAdmin?'<button class="small-delete" data-remove-event="'+i+'" aria-label="Удалить событие">×</button>':'')+'</div>';
+ }).join("");
+ document.getElementById("protocolTitle").textContent=m.label+" · "+name(m.a)+" — "+name(m.b);
+ const adminForm=isAdmin?'<form id="eventForm" class="event-form"><label>Событие<select id="eventType"><option value="goal">⚽ Гол</option><option value="yellow">🟨 Жёлтая карточка</option><option value="red">🟥 Красная карточка</option></select></label><label>Игрок<select id="eventPlayer" required>'+opts+'</select></label><label>Минута <input id="eventMinute" type="number" min="1" max="120" inputmode="numeric" placeholder="Например, 7"></label><button class="primary-button" type="submit">＋ Добавить событие</button></form>':'<p class="protocol-footnote">Протокол матча доступен только для просмотра.</p>';
+ document.getElementById("protocolContent").innerHTML='<div class="protocol-score"><span>'+esc(name(m.a))+'</span><strong>'+(m.scoreA??"–")+' : '+(m.scoreB??"–")+'</strong><span>'+esc(name(m.b))+'</span></div><h3>События матча</h3>'+(events||'<p class="empty">Событий пока нет.</p>')+adminForm+'<p class="protocol-footnote">Голы из протокола учитываются в бомбардирах, карточки — в дисциплинарной статистике.</p>';
+ const form=document.getElementById("eventForm");
+ if(form)form.onsubmit=e=>{
+  e.preventDefault();let type=document.getElementById("eventType").value,pid=document.getElementById("eventPlayer").value,minute=document.getElementById("eventMinute").value;
+  if(!pid){toast("Сначала добавьте игрока в состав");return}
+  let ev={id:uid("e"),type,playerId:pid,minute:minute?Number(minute):null};m.events.push(ev);
+  if(type==="goal"){let f=findPlayer(pid);if(f?.team.id===m.a)m.scoreA=(m.scoreA??0)+1;else if(f?.team.id===m.b)m.scoreB=(m.scoreB??0)+1}
+  save("Событие добавлено");renderAll();renderProtocol(m);
+ };
+ document.querySelectorAll("[data-remove-event]").forEach(b=>b.onclick=()=>{
+  let index=Number(b.dataset.removeEvent),ev=m.events[index];
+  if(ev?.type==="goal"){let f=findPlayer(ev.playerId);if(f?.team.id===m.a)m.scoreA=Math.max(0,(m.scoreA??0)-1);else if(f?.team.id===m.b)m.scoreB=Math.max(0,(m.scoreB??0)-1)}
+  m.events.splice(index,1);save("Событие удалено");renderAll();renderProtocol(m);
+ });
+}
+function renderCards(){let all=[];state.teams.forEach(t=>t.players.forEach(p=>{let yellow=cardCounts(p.id,"yellow"),red=cardCounts(p.id,"red");if(yellow||red)all.push({t,p,yellow,red})}));all.sort((a,b)=>b.red-a.red||b.yellow-a.yellow||a.p.name.localeCompare(b.p.name,"ru"));document.getElementById("yellowTotal").textContent=state.matches.reduce((n,m)=>n+(m.events||[]).filter(e=>e.type==="yellow").length,0);document.getElementById("redTotal").textContent=state.matches.reduce((n,m)=>n+(m.events||[]).filter(e=>e.type==="red").length,0);document.getElementById("cardsList").innerHTML=all.length?all.map(x=>'<div class="scorer-row"><div class="scorer-rank">▰</div><div><div class="scorer-name">'+esc(x.p.name)+'</div><div class="scorer-team">'+esc(x.t.name)+'</div></div><div class="card-counts">'+(x.yellow?'<span class="card-yellow">🟨 '+x.yellow+'</span>':'')+(x.red?'<span class="card-red">🟥 '+x.red+'</span>':'')+'</div></div>').join(""):'<div class="empty">Карточек пока нет. Добавляйте их через протокол матча.</div>'}
+function renderAll(){renderMatches();renderTable();renderTeams();renderScorers();renderCards();renderPlayoff();applyAdminUI()}
+function applyAdminUI(){
+ const addTeam=document.getElementById("addTeamBtn"),addPlayer=document.getElementById("addPlayerBtn"),importBtn=document.getElementById("importBtn");
+ if(addTeam)addTeam.hidden=!isAdmin;if(addPlayer)addPlayer.hidden=!isAdmin;if(importBtn)importBtn.hidden=!isAdmin;
+ const b=document.getElementById("adminBtn");if(b)b.setAttribute("aria-label",isAdmin?"Панель администратора":"Вход администратора");
+ const status=document.getElementById("syncStatus");if(status)status.textContent=isAdmin?"Вы вошли как администратор · изменения общие":"Публичный просмотр · данные синхронизируются";
+}
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===b));document.querySelectorAll(".view").forEach(x=>x.classList.toggle("active",x.id==="view-"+b.dataset.tab))});
+document.getElementById("addTeamBtn").onclick=()=>{state.teams.push({id:uid("t"),name:"Новая команда",players:[]});save();renderAll()};
+document.getElementById("closeProtocol").onclick=()=>{document.getElementById("protocolModal").hidden=true};document.getElementById("protocolModal").onclick=e=>{if(e.target.id==="protocolModal")e.currentTarget.hidden=true};
+document.getElementById("addPlayerBtn").onclick=()=>{if(!state.teams.length){toast("Сначала добавьте команду");return}let t=state.teams[0];t.players.push({id:uid("p"),name:"Новый игрок",goals:0});save();renderAll();toast("Игрок добавлен в "+t.name)};
+function download(blob,filename){let url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+function backup(){let saved=localStorage.getItem(LEGACY_KEY),data=saved?JSON.parse(saved):state;download(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}),saved?"football-tournament-local-backup.json":"football-tournament-backup.json");toast(saved?"Старая копия с этого устройства выгружена":"Резервная копия выгружена")}
+document.getElementById("backupBtn").onclick=backup;
+document.getElementById("exportCsvBtn").onclick=()=>{let rows=[["Место","Команда","И","В","Н","П","Забито","Пропущено","Разница","Очки"],...standings().map((r,i)=>[i+1,r.name,r.I,r.V,r.N,r.P,r.ZM,r.PM,r.RM,r.O])],csv="\uFEFF"+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(";")).join("\r\n");download(new Blob([csv],{type:"text/csv;charset=utf-8"}),"football-tournament-table.csv")};
+document.getElementById("importBtn").onclick=()=>document.getElementById("importFile").click();
+document.getElementById("importFile").onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(!Array.isArray(d.teams)||!Array.isArray(d.matches))throw 0;if(!confirm("Заменить текущие данные резервной копией?"))return;state=d;state.playoff=state.playoff||structuredClone(initial.playoff);localStorage.removeItem(LEGACY_KEY);save("Копия восстановлена в общий турнир");renderAll()}catch(err){toast("Файл резервной копии не распознан")}finally{e.target.value=""}};
+if("serviceWorker"in navigator&&location.protocol!=="file:")addEventListener("load",()=>navigator.serviceWorker.register("./service-worker.js").catch(()=>{}));
+
+const adminModal=document.getElementById("adminModal");
+document.getElementById("adminBtn").onclick=()=>{adminModal.hidden=false;document.getElementById("adminMessage").textContent=isAdmin?"Вы вошли как администратор.":"Только администратор может менять результаты и составы. Для зрителей вход не нужен.";document.getElementById("adminLogout").hidden=!isAdmin;};
+document.getElementById("closeAdmin").onclick=()=>adminModal.hidden=true;
+adminModal.onclick=e=>{if(e.target===adminModal)adminModal.hidden=true};
+document.getElementById("adminLoginForm").onsubmit=async e=>{
+ e.preventDefault();const login=document.getElementById("adminEmail").value.trim(),email=login.toLowerCase()==="alekseev"?"alexeevv663@gmail.com":login,password=document.getElementById("adminPassword").value;
+ const msg=document.getElementById("adminMessage");msg.textContent="Проверяем вход…";
+ const {data,error}=await db.auth.signInWithPassword({email,password});
+ if(error){msg.textContent="Не удалось войти. Проверьте почту и пароль.";return}
+ const user=data.user;const {data:allowed,error:checkError}=await db.from("tournament_admins").select("user_id").eq("user_id",user.id).maybeSingle();
+ if(checkError||!allowed){await db.auth.signOut();msg.textContent="У этой учётной записи нет прав администратора.";return}
+ authUser=user;isAdmin=true;document.getElementById("adminLogout").hidden=false;document.getElementById("adminTitle").textContent="Панель администратора";msg.textContent="Вход выполнен. Теперь можно редактировать турнир.";renderAll();toast("Вход администратора выполнен");
+};
+document.getElementById("adminLogout").onclick=async()=>{await db.auth.signOut();authUser=null;isAdmin=false;document.getElementById("adminPassword").value="";document.getElementById("adminTitle").textContent="Вход администратора";document.getElementById("adminLogout").hidden=true;adminModal.hidden=true;renderAll();toast("Вы вышли из панели");};
+async function bootShared(){
+ const {data,error}=await db.from("tournament_state").select("state,updated_at").eq("id","main").single();
+ if(error){document.getElementById("syncStatus").textContent="Не удалось загрузить общие данные";console.error(error);renderAll();return}
+ const localState=(()=>{try{return JSON.parse(localStorage.getItem(KEY))}catch(e){return null}})();
+ if(localState&&JSON.stringify(localState)!==JSON.stringify(initial)&&!localStorage.getItem(LEGACY_KEY)){try{localStorage.setItem(LEGACY_KEY,JSON.stringify(localState))}catch(e){}}
+ state=data.state;state.matches.forEach(m=>{if(!Array.isArray(m.events))m.events=[]});
+ try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+ if(localStorage.getItem(LEGACY_KEY))toast("Старая копия сохранена на этом устройстве — нажмите ↗, чтобы выгрузить её");
+ const {data:sessionData}=await db.auth.getSession();
+ if(sessionData?.session){authUser=sessionData.session.user;const {data:allowed}=await db.from("tournament_admins").select("user_id").eq("user_id",authUser.id).maybeSingle();isAdmin=!!allowed;}
+ db.channel("tournament-live").on("postgres_changes",{event:"UPDATE",schema:"public",table:"tournament_state",filter:"id=eq.main"},payload=>{
+  if(payload.new.updated_at===lastSavedStamp)return;
+  state=payload.new.state;state.matches.forEach(m=>{if(!Array.isArray(m.events))m.events=[]});
+  try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+  renderAll();toast("Результаты турнира обновлены");
+ }).subscribe();
+ renderAll();
+}
+db.auth.onAuthStateChange((event,session)=>{if(event==="SIGNED_OUT"){isAdmin=false;authUser=null;renderAll()}});
+
+bootShared();

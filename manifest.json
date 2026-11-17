@@ -1,0 +1,20 @@
+{
+  "name": "Gymnasium Peredelkino Football Championship",
+  "short_name": "GP CHAMPIONSHIP",
+  "description": "Официальный цифровой центр футбольного турнира Гимназии Переделкино",
+  "lang": "ru",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F2E1",
+  "theme_color": "#1E2945",
+  "icons": [
+    {
+      "src": "icons/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
