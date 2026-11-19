@@ -3,39 +3,53 @@ const LEGACY_KEY="football-tournament-local-backup";
 const SUPABASE_URL="https://rgjixxsagfnvylwvdpzg.supabase.co";
 const SUPABASE_KEY="sb_publishable_4V3L2HoqXJMOjKiufXmL3w_xM9YppgF";
 const db=window.supabase?.createClient?window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY):null;
-let isAdmin=false,authUser=null,syncTimer=null,lastSavedStamp=null,activeProtocolId=null,syncAvailable=!!db;
+let isAdmin=false,authUser=null,syncTimer=null,lastSavedStamp=null,saveQueue=Promise.resolve(),pendingWrites=0,activeProtocolId=null,syncAvailable=!!db;
 const initial={teams:[
 {id:"t1",name:"Команда 1",players:[["p1","Шевченко"],["p2","Курбанов"],["p3","Титаренко"],["p4","Буланов"]]},
 {id:"t2",name:"Команда 2",players:[["p5","Сахончик"],["p6","Погорелов"],["p7","Данилов"],["p8","Умаров"]]},
 {id:"t3",name:"Команда 3",players:[["p9","Базаев"],["p10","Мухтаров"],["p11","Абубикаров"],["p12","Андреев"]]},
 {id:"t4",name:"Команда 4",players:[["p13","Найдёнов"],["p14","Терехов"],["p15","Мнацаканян"]]}].map(t=>({...t,players:t.players.map(([id,name])=>({id,name,goals:0}))})),
-matches:[["m1","t1","t2"],["m2","t3","t4"],["m3","t2","t3"],["m4","t4","t1"],["m5","t2","t4"],["m6","t1","t3"]].map((x,i)=>({id:x[0],a:x[1],b:x[2],label:"Матч "+(i+1),day:"Среда / пятница · 7-й урок",minutes:10,scoreA:null,scoreB:null,events:[]})),
+matches:[["m1","t1","t2"],["m2","t3","t4"],["m3","t2","t3"],["m4","t4","t1"],["m5","t2","t4"],["m6","t1","t3"]].map((x,i)=>({id:x[0],a:x[1],b:x[2],label:"Матч "+(i+1),day:"Среда / пятница · 7-й урок",minutes:10,scoreA:null,scoreB:null,completed:false,events:[]})),
 playoff:{sf1:{scoreA:null,scoreB:null,winner:null},sf2:{scoreA:null,scoreB:null,winner:null},third:{scoreA:null,scoreB:null,winner:null},final:{scoreA:null,scoreB:null,winner:null}}};
 function normalizeState(raw){
  if(!raw||!Array.isArray(raw.teams)||!Array.isArray(raw.matches))return structuredClone(initial);
  const cleanTeams=raw.teams.map(t=>({...t,players:(Array.isArray(t.players)?t.players:[]).map(p=>({...p,goals:Number.isFinite(Number(p.goals))?Math.max(0,Number(p.goals)):0}))}));
- const cleanMatches=raw.matches.map(m=>({...m,scoreA:Number.isInteger(m.scoreA)?m.scoreA:null,scoreB:Number.isInteger(m.scoreB)?m.scoreB:null,events:Array.isArray(m.events)?m.events:[]}));
+ const cleanMatches=raw.matches.map(m=>({...m,scoreA:Number.isInteger(m.scoreA)?m.scoreA:null,scoreB:Number.isInteger(m.scoreB)?m.scoreB:null,completed:typeof m.completed==="boolean"?m.completed:(Number.isInteger(m.scoreA)&&Number.isInteger(m.scoreB)),events:Array.isArray(m.events)?m.events:[]}));
  return {...structuredClone(initial),...raw,teams:cleanTeams,matches:cleanMatches,playoff:{...structuredClone(initial.playoff),...(raw.playoff||{})}};
 }
 let state;try{state=normalizeState(JSON.parse(localStorage.getItem(KEY)))}catch(e){state=structuredClone(initial)}
 
-function save(msg="Сохранено автоматически"){
- try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
- if(!isAdmin){toast("Изменения доступны только администратору");return}
- if(!db){toast("Нет соединения с сервером. Изменения не отправлены.");return}
+async function save(msg="Сохранено автоматически",immediate=false){
+ try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){toast("Не удалось сохранить копию на устройстве");return false}
+ if(!isAdmin){toast("Войдите как администратор, чтобы сохранить результат");return false}
+ if(!db){toast("Сервис синхронизации временно недоступен");return false}
  clearTimeout(syncTimer);
- syncTimer=setTimeout(async()=>{
-  const stamp=new Date().toISOString();lastSavedStamp=stamp;
+ if(!immediate){syncTimer=setTimeout(()=>{save(msg,true)},450);return true}
+ const task=saveQueue.then(async()=>{
+  const snapshot=JSON.parse(JSON.stringify(state));
+  const stamp=new Date().toISOString();
+  pendingWrites++;
   try{
-   const {error}=await db.from("tournament_state").update({state,updated_at:stamp}).eq("id","main");
-   if(error){lastSavedStamp=null;syncAvailable=false;toast("Ошибка синхронизации. Проверьте интернет.");return}
-   syncAvailable=true;toast(msg);
-  }catch(error){lastSavedStamp=null;syncAvailable=false;toast("Нет связи с сервером. Изменения не отправлены.");}
- },250);
+   const {data,error}=await db.from("tournament_state").update({state:snapshot,updated_at:stamp}).eq("id","main").select("id,updated_at").maybeSingle();
+   if(error)throw error;
+   if(!data||data.id!=="main")throw new Error("Сервер не подтвердил запись. Проверьте права администратора.");
+   lastSavedStamp=data.updated_at||stamp;
+   syncAvailable=true;
+   try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}
+   toast(msg);return true;
+  }catch(error){
+   lastSavedStamp=null;syncAvailable=false;
+   const detail=error?.message||error?.details||error?.hint||"Неизвестная ошибка";
+   toast("Не удалось сохранить: "+detail);console.error("Tournament save failed:",error);return false;
+  }finally{pendingWrites=Math.max(0,pendingWrites-1)}
+ });
+ saveQueue=task.then(()=>undefined,()=>undefined);
+ return await task;
 }
+function restoreLocalState(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){console.error("Could not restore local backup:",e)}}
 function toast(s){let e=document.getElementById("toast");e.textContent=s;e.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>e.classList.remove("show"),1700)}
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const team=id=>state.teams.find(t=>t.id===id), name=id=>team(id)?.name||"—", done=m=>Number.isInteger(m.scoreA)&&Number.isInteger(m.scoreB);
+const team=id=>state.teams.find(t=>t.id===id), name=id=>team(id)?.name||"—", done=m=>typeof m.completed==="boolean"?m.completed:(Number.isInteger(m.scoreA)&&Number.isInteger(m.scoreB));
 function teamGoalEvents(m,teamId){return (m.events||[]).filter(e=>e.type==="goal"&&e.teamId===teamId&&!e.playerId)}
 function attributedGoals(m,teamId){return (m.events||[]).filter(e=>e.type==="goal"&&e.playerId&&findPlayer(e.playerId)?.team.id===teamId).length}
 function setMatchScore(m,side,value){
@@ -50,10 +64,27 @@ function setMatchScore(m,side,value){
 
 function openPlayerProfile(playerId){const f=findPlayer(playerId);if(!f)return;const events=state.matches.flatMap(m=>(m.events||[]).filter(e=>e.playerId===playerId).map(e=>({m,e}))).reverse();const played=state.matches.filter(m=>(m.a===f.team.id||m.b===f.team.id)&&done(m)).length;const goals=goalsFor(playerId),assists=assistsFor(playerId),yellow=cardCounts(playerId,"yellow"),red=cardCounts(playerId,"red");document.getElementById("profileEyebrow").textContent="PLAYER PROFILE · "+f.team.name;document.getElementById("profileTitle").textContent=f.player.name;document.getElementById("profileContent").innerHTML='<div class="profile-team">'+esc(f.team.name)+'</div><div class="profile-stats"><div><strong>'+goals+'</strong><span>Голы</span></div><div><strong>'+assists+'</strong><span>Голевые передачи</span></div><div><strong>'+played+'</strong><span>Матчи команды</span></div><div><strong>'+yellow+'</strong><span>Жёлтые</span></div><div><strong>'+red+'</strong><span>Красные</span></div></div><h3>Последние события</h3>'+(events.length?events.slice(0,12).map(({m,e})=>'<div class="profile-event"><span>'+(e.type==="goal"?"⚽":e.type==="yellow"?"🟨":"🟥")+'</span><div><strong>'+eventLabel(e)+'</strong><small>'+esc(m.label)+' · '+esc(name(m.a))+' — '+esc(name(m.b))+(e.minute?' · '+e.minute+'′':'')+'</small></div></div>').join(""):'<p class="empty">Событий пока нет.</p>')+'';document.getElementById("profileModal").hidden=false}
 function openTeamProfile(teamId){const t=team(teamId);if(!t)return;const row=standings().find(x=>x.id===teamId),played=state.matches.filter(m=>(m.a===teamId||m.b===teamId)&&done(m)).length,top=t.players.map(p=>({p,g:goalsFor(p.id)})).sort((a,b)=>b.g-a.g)[0];document.getElementById("profileEyebrow").textContent="ПРОФИЛЬ КОМАНДЫ";document.getElementById("profileTitle").textContent=t.name;document.getElementById("profileContent").innerHTML='<div class="profile-stats"><div><strong>'+(row?.O||0)+'</strong><span>Очки</span></div><div><strong>'+played+'</strong><span>Матчи</span></div><div><strong>'+(row?.ZM||0)+'</strong><span>Забито</span></div><div><strong>'+(row?.PM||0)+'</strong><span>Пропущено</span></div></div><h3>Состав команды</h3>'+(t.players.map(p=>'<button class="profile-player-link" data-profile-player="'+p.id+'">'+esc(p.name)+'<span>⚽ '+goalsFor(p.id)+'</span></button>').join("")||'<p class="empty">Состав пока пуст.</p>')+'<p class="profile-team-note">Лучший бомбардир: '+(top?esc(top.p.name)+' · '+top.g+' гол.':'пока нет голов')+'</p>';document.getElementById("profileModal").hidden=false;document.querySelectorAll("[data-profile-player]").forEach(b=>b.onclick=()=>openPlayerProfile(b.dataset.profilePlayer))}
-function renderMatches(){let el=document.getElementById("matchesList");el.innerHTML=state.matches.map((m,i)=>`<article class="match-card" data-open-match="${m.id}" tabindex="0" role="button" aria-label="Открыть протокол ${esc(m.label)}"><div class="match-top"><span class="match-label">${esc(m.label)} · ${i<4?"СРЕДА":"ПЯТНИЦА"}</span><span class="match-status ${done(m)?"":"pending"}">${done(m)?"ЗАВЕРШЁН":"ОЖИДАЕТСЯ"}</span></div><div class="match-row"><div class="team-side">${esc(name(m.a))}</div><div class="score-box"><input class="score-input" type="number" min="0" max="99" inputmode="numeric" placeholder="–" aria-label="Голы ${esc(name(m.a))}" value="${m.scoreA??""}" data-match="${m.id}" data-side="A" ${isAdmin?"":"disabled"}><span class="score-sep">:</span><input class="score-input" type="number" min="0" max="99" inputmode="numeric" placeholder="–" aria-label="Голы ${esc(name(m.b))}" value="${m.scoreB??""}" data-match="${m.id}" data-side="B" ${isAdmin?"":"disabled"}></div><div class="team-side right">${esc(name(m.b))}</div></div><div class="match-bottom"><span>⏱ ${m.minutes||10} МИНУТ</span>${isAdmin?`<button class="clear-score" data-clear="${m.id}">Сбросить счёт</button>`:""}</div></article>`).join("");
-el.querySelectorAll("[data-open-match]").forEach(card=>{card.onclick=e=>{if(e.target.closest("input,button"))return;openProtocol(card.dataset.openMatch)};card.onkeydown=e=>{if((e.key==="Enter"||e.key===" ")&&e.target===card){e.preventDefault();openProtocol(card.dataset.openMatch)}}});
-el.querySelectorAll("[data-match]").forEach(inp=>inp.addEventListener("change",()=>{let m=state.matches.find(m=>m.id===inp.dataset.match),v=inp.value.trim();if(!m)return;let target=null;if(v!==""){if(!/^\d{1,2}$/.test(v)||Number(v)>99){toast("Введите целое число от 0 до 99");renderAll();return}target=Number(v)}const result=setMatchScore(m,inp.dataset.side,target);if(!result.ok){toast(result.message);renderAll();return}save("Счёт и протокол синхронизированы");renderAll()}));
-el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=()=>{let m=state.matches.find(m=>m.id===b.dataset.clear);if(!m)return;const hasGoals=(m.events||[]).some(e=>e.type==="goal");if(hasGoals&&!confirm("Сбросить счёт и удалить все голевые события этого матча? Карточки останутся."))return;m.events=(m.events||[]).filter(e=>e.type!=="goal");m.scoreA=m.scoreB=null;save("Счёт матча сброшен");renderAll()})}
+function renderMatches(){
+ let el=document.getElementById("matchesList");
+ el.innerHTML=state.matches.map((m,i)=>`<article class="match-card" data-open-match="${m.id}" tabindex="0" role="button" aria-label="Открыть протокол ${esc(m.label)}"><div class="match-top"><span class="match-label">${esc(m.label)} · ${i<4?"СРЕДА":"ПЯТНИЦА"}</span><span class="match-status ${done(m)?"":"pending"}">${done(m)?"ЗАВЕРШЁН":"ОЖИДАЕТСЯ"}</span></div><div class="match-row"><div class="team-side">${esc(name(m.a))}</div><div class="score-box"><input class="score-input" type="number" min="0" max="99" inputmode="numeric" placeholder="–" aria-label="Голы ${esc(name(m.a))}" value="${m.scoreA??""}" data-match="${m.id}" data-side="A" ${isAdmin?"":"disabled"}><span class="score-sep">:</span><input class="score-input" type="number" min="0" max="99" inputmode="numeric" placeholder="–" aria-label="Голы ${esc(name(m.b))}" value="${m.scoreB??""}" data-match="${m.id}" data-side="B" ${isAdmin?"":"disabled"}></div><div class="team-side right">${esc(name(m.b))}</div></div><div class="match-bottom"><span>⏱ ${m.minutes||10} МИНУТ · ${m.events?.length||0} СОБЫТИЙ</span>${isAdmin?`<button class="clear-score" data-clear="${m.id}">Сбросить счёт</button>`:""}</div></article>`).join("");
+ el.querySelectorAll("[data-open-match]").forEach(card=>{card.onclick=e=>{if(e.target.closest("input,button"))return;openProtocol(card.dataset.openMatch)};card.onkeydown=e=>{if((e.key==="Enter"||e.key===" ")&&e.target===card){e.preventDefault();openProtocol(card.dataset.openMatch)}}});
+ el.querySelectorAll("[data-match]").forEach(inp=>inp.addEventListener("change",async()=>{
+  let m=state.matches.find(x=>x.id===inp.dataset.match);if(!m)return;
+  const before=structuredClone(m),v=inp.value.trim();let target=null;
+  if(v!==""){if(!/^\\d{1,2}$/.test(v)||Number(v)>99){toast("Введите целое число от 0 до 99");renderAll();return}target=Number(v)}
+  const result=setMatchScore(m,inp.dataset.side,target);
+  if(!result.ok){toast(result.message);renderAll();return}
+  m.completed=false;renderAll();
+  if(!(await save("Счёт и протокол синхронизированы",true))){Object.assign(m,before);restoreLocalState();renderAll()}
+ }));
+ el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=async()=>{
+  let m=state.matches.find(x=>x.id===b.dataset.clear);if(!m)return;
+  const hasGoals=(m.events||[]).some(e=>e.type==="goal");
+  if(hasGoals&&!confirm("Сбросить счёт и удалить все голевые события этого матча? Карточки останутся."))return;
+  const before=structuredClone(m);m.events=(m.events||[]).filter(e=>e.type!=="goal");m.scoreA=m.scoreB=null;m.completed=false;renderAll();
+  if(!(await save("Счёт матча сброшен",true))){Object.assign(m,before);restoreLocalState();renderAll()}
+ });
+}
 function standings(){let rows=state.teams.map(t=>({id:t.id,name:t.name,I:0,V:0,N:0,P:0,ZM:0,PM:0,RM:0,O:0})),map=Object.fromEntries(rows.map(r=>[r.id,r]));state.matches.forEach(m=>{if(!done(m)||!map[m.a]||!map[m.b])return;let a=map[m.a],b=map[m.b];a.I++;b.I++;a.ZM+=m.scoreA;a.PM+=m.scoreB;b.ZM+=m.scoreB;b.PM+=m.scoreA;if(m.scoreA>m.scoreB){a.V++;b.P++;a.O+=3}else if(m.scoreA<m.scoreB){b.V++;a.P++;b.O+=3}else{a.N++;b.N++;a.O++;b.O++}});rows.forEach(r=>r.RM=r.ZM-r.PM);return rows.sort((a,b)=>b.O-a.O||b.RM-a.RM||b.ZM-a.ZM||a.name.localeCompare(b.name,"ru"))}
 function renderTable(){document.getElementById("standingsBody").innerHTML=standings().map((r,i)=>`<tr><td>${i+1}</td><td><button class="table-team-link" data-team-profile="${r.id}">${esc(r.name)}</button></td><td>${r.I}</td><td>${r.V}</td><td>${r.N}</td><td>${r.P}</td><td>${r.ZM}</td><td>${r.PM}</td><td>${r.RM>0?"+"+r.RM:r.RM}</td><td>${r.O}</td></tr>`).join("");document.querySelectorAll("[data-team-profile]").forEach(b=>b.onclick=()=>openTeamProfile(b.dataset.teamProfile))}
 function seeds(){let r=standings();return state.matches.every(done)&&r.length>=4?r.slice(0,4).map(x=>x.id):null}
@@ -72,6 +103,27 @@ function cardCounts(playerId,type){return state.matches.reduce((n,m)=>n+(m.event
 function renderScorers(){let all=[];state.teams.forEach(t=>t.players.forEach(p=>all.push({t,p,goals:goalsFor(p.id),assists:assistsFor(p.id)})));all.sort((a,b)=>b.goals-a.goals||b.assists-a.assists||a.p.name.localeCompare(b.p.name,"ru"));let el=document.getElementById("scorersList");el.innerHTML=all.length?all.map((x,i)=>`<div class="scorer-row"><div class="scorer-rank">${i+1}</div><div><button class="scorer-name profile-name-button" data-player-profile="${x.p.id}">${esc(x.p.name)}</button><div class="scorer-team">${esc(x.t.name)}</div></div><div class="scorer-stats"><div class="scorer-stat scorer-goals"><span class="stat-icon stat-ball" aria-hidden="true">⚽</span><span class="stat-number">${x.goals}</span><span class="stat-caption">ГОЛЫ</span>${isAdmin?`<span class="stat-admin"><button class="goal-btn" data-goal="${x.p.id}" data-delta="-1" aria-label="Уменьшить голы">−</button><button class="goal-btn" data-goal="${x.p.id}" data-delta="1" aria-label="Добавить гол">+</button></span>`:""}</div><div class="scorer-stat scorer-assists"><span class="stat-icon stat-assist" aria-hidden="true">A</span><span class="stat-number">${x.assists}</span><span class="stat-caption">АССИСТЫ</span></div></div></div>`).join(""):'<div class="empty">Добавьте игроков в составы команд.</div>';el.querySelectorAll("[data-player-profile]").forEach(b=>b.onclick=()=>openPlayerProfile(b.dataset.playerProfile));el.querySelectorAll("[data-goal]").forEach(b=>b.onclick=()=>{let f=findPlayer(b.dataset.goal);if(f){f.player.goals=Math.max(0,f.player.goals+Number(b.dataset.delta));save();renderScorers()}})}
 function eventLabel(e){return e.type==="goal"?"Гол":e.type==="yellow"?"Жёлтая карточка":"Красная карточка"}
 function openProtocol(matchId){let m=state.matches.find(x=>x.id===matchId);if(!m)return;activeProtocolId=matchId;document.getElementById("protocolModal").hidden=false;renderProtocol(m)}
+function recentTeamMatches(teamId,currentMatchId){
+ return state.matches.filter(x=>x.id!==currentMatchId&&x.completed===true&&(x.a===teamId||x.b===teamId)).slice(-5).reverse();
+}
+function teamMatchOutcome(match,teamId){
+ const own=match.a===teamId?match.scoreA:match.scoreB,other=match.a===teamId?match.scoreB:match.scoreA;
+ return own>other?"В":own===other?"Н":"П";
+}
+function renderMatchInsights(match){
+ const renderForm=id=>{
+  const games=recentTeamMatches(id,match.id);
+  if(!games.length)return '<p class="match-insights-empty">Завершённых матчей пока нет</p>';
+  return '<div class="form-list">'+games.map(g=>{
+   const isA=g.a===id,opponent=name(isA?g.b:g.a),own=isA?g.scoreA:g.scoreB,other=isA?g.scoreB:g.scoreA,mark=teamMatchOutcome(g,id);
+   return '<div class="form-row"><span class="form-pill form-'+(mark==="В"?"win":mark==="Н"?"draw":"loss")+'">'+mark+'</span><span>'+esc(opponent)+'</span><strong>'+own+':'+other+'</strong></div>';
+  }).join("")+'</div>';
+ };
+ const h2h=state.matches.filter(g=>g.id!==match.id&&g.completed===true&&((g.a===match.a&&g.b===match.b)||(g.a===match.b&&g.b===match.a)));
+ let winsA=0,winsB=0,draws=0;
+ h2h.forEach(g=>{const aScore=g.a===match.a?g.scoreA:g.scoreB,bScore=g.a===match.a?g.scoreB:g.scoreA;if(aScore>bScore)winsA++;else if(aScore<bScore)winsB++;else draws++});
+ return '<section class="match-insights"><div class="insight-card"><h3>Последние матчи</h3><div class="insight-teams"><div><strong>'+esc(name(match.a))+'</strong>'+renderForm(match.a)+'</div><div><strong>'+esc(name(match.b))+'</strong>'+renderForm(match.b)+'</div></div></div><div class="insight-card"><h3>Очные встречи</h3>'+(h2h.length?'<div class="h2h-score"><strong>'+winsA+'</strong><span>Победы</span><strong>'+draws+'</strong><span>Ничьи</span><strong>'+winsB+'</strong></div><p class="match-insights-empty">Учтено встреч: '+h2h.length+'</p>':'<p class="match-insights-empty">В этом турнире команды ещё не встречались</p>')+'</div></section>';
+}
 function renderProtocol(m){
  let players=state.teams.filter(t=>t.id===m.a||t.id===m.b).flatMap(t=>t.players.map(p=>({team:t,player:p})));
  let opts=players.map(x=>'<option value="'+esc(x.player.id)+'">'+esc(x.player.name)+' · '+esc(x.team.name)+'</option>').join("");
@@ -82,23 +134,50 @@ function renderProtocol(m){
  }).join("");
  document.getElementById("protocolTitle").textContent=m.label+" · "+name(m.a)+" — "+name(m.b);
  const adminForm=isAdmin?'<form id="eventForm" class="event-form"><label>Событие<select id="eventType"><option value="goal">⚽ Гол</option><option value="yellow">🟨 Жёлтая карточка</option><option value="red">🟥 Красная карточка</option></select></label><label>Игрок<select id="eventPlayer" required>'+opts+'</select></label><label id="assistField">Голевая передача <select id="eventAssist"><option value="">Без ассиста</option>'+opts+'</select></label><label>Минута <input id="eventMinute" type="number" min="1" max="10" inputmode="numeric" placeholder="1–10"></label><button class="primary-button" type="submit">＋ Добавить событие</button></form>':'<p class="protocol-footnote">Протокол матча доступен только для просмотра.</p>';
+ const savePanel=isAdmin?'<button class="primary-button" id="saveMatchResult" type="button">Сохранить результат</button><section class="finish-match-panel"><p>После проверки счёта и событий отдельно отметь завершение матча:</p><button class="finish-match-button" id="finishMatchProtocol" type="button" '+(done(m)?"disabled":"")+'>'+(done(m)?"Матч окончен ✓":"Матч окончен")+'</button></section>':"";
  const yellowCount=(m.events||[]).filter(e=>e.type==="yellow").reduce((acc,e)=>{acc[e.playerId]=(acc[e.playerId]||0)+1;return acc},{}),discipline=(m.events||[]).filter(e=>e.type==="red"||(e.type==="yellow"&&yellowCount[e.playerId]>=2));
  const warnings=discipline.length?'<div class="discipline-notice"><strong>Дисциплинарные отметки</strong>'+discipline.map(e=>{const f=findPlayer(e.playerId);return '<p>'+(e.type==="red"?'🟥 Прямая красная — пропуск следующего матча.':'🟨🟨 Две жёлтые — игрок завершает участие в этом матче.')+' '+esc(f?.player.name||"Игрок")+'</p>'}).join("")+'</div>':'';
- document.getElementById("protocolContent").innerHTML='<div class="protocol-score"><button type="button" class="protocol-team-link" data-protocol-team="'+m.a+'"><span>'+esc(name(m.a))+'</span><small>СТАТИСТИКА ↗</small></button><strong>'+(m.scoreA??"–")+' : '+(m.scoreB??"–")+'</strong><button type="button" class="protocol-team-link" data-protocol-team="'+m.b+'"><span>'+esc(name(m.b))+'</span><small>СТАТИСТИКА ↗</small></button></div><div class="match-centre-stats"><div><strong>'+((m.events||[]).filter(e=>e.type==="goal").length)+'</strong><span>Голы</span></div><div><strong>'+((m.events||[]).filter(e=>e.type==="yellow").length)+'</strong><span>Жёлтые</span></div><div><strong>'+((m.events||[]).filter(e=>e.type==="red").length)+'</strong><span>Красные</span></div></div>'+warnings+'<h3>Хронология матча</h3>'+(events||'<p class="empty">Событий пока нет.</p>')+adminForm+'<p class="protocol-footnote">Все голы, внесённые через счёт, отражаются в хронологии как голы без указания автора. Для персональной статистики указывайте автора и ассистента при добавлении гола. Голы, внесённые только через счёт, не учитываются в статистике ассистов.</p>';
+ document.getElementById("protocolContent").innerHTML='<div class="protocol-score"><button type="button" class="protocol-team-link" data-protocol-team="'+m.a+'"><span>'+esc(name(m.a))+'</span><small>СТАТИСТИКА ↗</small></button><strong>'+(m.scoreA??"–")+' : '+(m.scoreB??"–")+'</strong><button type="button" class="protocol-team-link" data-protocol-team="'+m.b+'"><span>'+esc(name(m.b))+'</span><small>СТАТИСТИКА ↗</small></button></div>'+renderMatchInsights(m)+'<div class="match-centre-stats"><div><strong>'+((m.events||[]).filter(e=>e.type==="goal").length)+'</strong><span>Голы</span></div><div><strong>'+((m.events||[]).filter(e=>e.type==="yellow").length)+'</strong><span>Жёлтые</span></div><div><strong>'+((m.events||[]).filter(e=>e.type==="red").length)+'</strong><span>Красные</span></div></div>'+warnings+'<h3>Хронология матча</h3>'+(events||'<p class="empty">Событий пока нет.</p>')+adminForm+savePanel+'<p class="protocol-footnote">Все голы, внесённые через счёт, отражаются в хронологии как голы без указания автора. Для персональной статистики указывайте автора и ассистента при добавлении гола. Голы, внесённые только через счёт, не учитываются в статистике ассистов.</p>';
  document.querySelectorAll("[data-protocol-team]").forEach(b=>b.onclick=()=>{const id=b.dataset.protocolTeam;document.getElementById("protocolModal").hidden=true;activeProtocolId=null;openTeamProfile(id)});
+ const saveButton=document.getElementById("saveMatchResult");
+ if(saveButton)saveButton.onclick=async()=>{
+  saveButton.disabled=true;saveButton.textContent="Сохраняем…";
+  const ok=await save("Результат матча сохранён",true);
+  if(saveButton.isConnected){saveButton.disabled=false;saveButton.textContent=ok?"Результат сохранён ✓":"Повторить сохранение"}
+ };
+ const finishButton=document.getElementById("finishMatchProtocol");
+ if(finishButton)finishButton.onclick=async()=>{
+  if(done(m))return;
+  const before=structuredClone(m);m.scoreA=m.scoreA??0;m.scoreB=m.scoreB??0;m.completed=true;
+  finishButton.disabled=true;finishButton.textContent="Сохраняем…";
+  if(!(await save("Матч окончен",true))){Object.assign(m,before);restoreLocalState();renderAll();renderProtocol(m);return}
+  renderAll();renderProtocol(m);
+ };
  const form=document.getElementById("eventForm");
  if(form){const typeSelect=document.getElementById("eventType"),assistField=document.getElementById("assistField"),assistSelect=document.getElementById("eventAssist");const syncAssist=()=>{assistField.hidden=typeSelect.value!=="goal";assistSelect.disabled=typeSelect.value!=="goal"};typeSelect.onchange=syncAssist;syncAssist()}
- if(form)form.onsubmit=e=>{
-  e.preventDefault();let type=document.getElementById("eventType").value,pid=document.getElementById("eventPlayer").value,assistId=document.getElementById("eventAssist")?.value||"",minute=document.getElementById("eventMinute").value;
+ if(form)form.onsubmit=async e=>{
+  e.preventDefault();const submit=form.querySelector('button[type="submit"]');if(submit?.disabled)return;
+  let type=document.getElementById("eventType").value,pid=document.getElementById("eventPlayer").value,assistId=document.getElementById("eventAssist")?.value||"",minute=document.getElementById("eventMinute").value;
   if(!pid){toast("Сначала добавьте игрока в состав");return}
-  let minuteValue=minute?Number(minute):null;if(minuteValue!==null&&(!Number.isInteger(minuteValue)||minuteValue<1||minuteValue>10)){toast("Минута должна быть от 1 до 10");return}const scorer=findPlayer(pid),assist=assistId?findPlayer(assistId):null;if(type==="goal"&&assistId&&(!assist||assist.team.id!==scorer?.team.id||assistId===pid)){toast("Ассистент должен быть другим игроком той же команды.");return}let ev={id:uid("e"),type,playerId:pid,teamId:scorer?.team.id||null,assistPlayerId:type==="goal"?(assistId||null):null,minute:minuteValue};m.events.push(ev);
-  if(type==="goal"){let f=findPlayer(pid);if(f?.team.id===m.a)m.scoreA=(m.scoreA??0)+1;else if(f?.team.id===m.b)m.scoreB=(m.scoreB??0)+1}
-  save("Событие добавлено");renderAll();renderProtocol(m);
+  let minuteValue=minute?Number(minute):null;
+  if(minuteValue!==null&&(!Number.isInteger(minuteValue)||minuteValue<1||minuteValue>10)){toast("Минута должна быть от 1 до 10");return}
+  const scorer=findPlayer(pid),assist=assistId?findPlayer(assistId):null;
+  if(type==="goal"&&assistId&&(!assist||assist.team.id!==scorer?.team.id||assistId===pid)){toast("Ассистент должен быть другим игроком той же команды.");return}
+  const before=structuredClone(m),ev={id:uid("e"),type,playerId:pid,teamId:scorer?.team.id||null,assistPlayerId:type==="goal"?(assistId||null):null,minute:minuteValue};
+  m.events.push(ev);m.completed=false;
+  if(type==="goal"){if(scorer?.team.id===m.a)m.scoreA=(m.scoreA??0)+1;else if(scorer?.team.id===m.b)m.scoreB=(m.scoreB??0)+1}
+  if(submit){submit.disabled=true;submit.textContent="Сохраняем событие…"}
+  if(!(await save("Событие сохранено в протоколе",true))){Object.assign(m,before);restoreLocalState();renderAll();renderProtocol(m);return}
+  renderAll();renderProtocol(m);
  };
- document.querySelectorAll("[data-remove-event]").forEach(b=>b.onclick=()=>{
-  let index=Number(b.dataset.removeEvent),ev=m.events[index];
-  if(ev?.type==="goal"){let f=findPlayer(ev.playerId),tid=f?.team.id||ev.teamId;if(tid===m.a)m.scoreA=Math.max(0,(m.scoreA??0)-1);else if(tid===m.b)m.scoreB=Math.max(0,(m.scoreB??0)-1)}
-  m.events.splice(index,1);save("Событие удалено");renderAll();renderProtocol(m);
+ document.querySelectorAll("[data-remove-event]").forEach(b=>b.onclick=async()=>{
+  if(b.disabled)return;b.disabled=true;
+  const index=Number(b.dataset.removeEvent),ev=m.events[index];if(!ev)return;
+  const before=structuredClone(m);
+  if(ev.type==="goal"){const f=findPlayer(ev.playerId),tid=f?.team.id||ev.teamId;if(tid===m.a)m.scoreA=Math.max(0,(m.scoreA??0)-1);else if(tid===m.b)m.scoreB=Math.max(0,(m.scoreB??0)-1)}
+  m.events.splice(index,1);m.completed=false;
+  if(!(await save("Событие удалено из протокола",true))){Object.assign(m,before);restoreLocalState();renderAll();renderProtocol(m);return}
+  renderAll();renderProtocol(m);
  });
 }
 function renderCards(){let all=[];state.teams.forEach(t=>t.players.forEach(p=>{let yellow=cardCounts(p.id,"yellow"),red=cardCounts(p.id,"red");if(yellow||red)all.push({t,p,yellow,red})}));all.sort((a,b)=>b.red-a.red||b.yellow-a.yellow||a.p.name.localeCompare(b.p.name,"ru"));document.getElementById("yellowTotal").textContent=state.matches.reduce((n,m)=>n+(m.events||[]).filter(e=>e.type==="yellow").length,0);document.getElementById("redTotal").textContent=state.matches.reduce((n,m)=>n+(m.events||[]).filter(e=>e.type==="red").length,0);document.getElementById("cardsList").innerHTML=all.length?all.map(x=>'<div class="scorer-row"><div class="scorer-rank">▰</div><div><div class="scorer-name">'+esc(x.p.name)+'</div><div class="scorer-team">'+esc(x.t.name)+'</div></div><div class="card-counts">'+(x.yellow?'<span class="card-yellow">🟨 '+x.yellow+'</span>':'')+(x.red?'<span class="card-red">🟥 '+x.red+'</span>':'')+'</div></div>').join(""):'<div class="empty">Карточек пока нет. Добавляйте их через протокол матча.</div>'}
