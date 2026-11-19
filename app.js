@@ -46,9 +46,10 @@ async function save(msg="Сохранено автоматически",immediat
  saveQueue=task.then(()=>undefined,()=>undefined);
  return await task;
 }
+function restoreLocalState(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){console.error("Could not restore local backup:",e)}}
 function toast(s){let e=document.getElementById("toast");e.textContent=s;e.classList.add("show");clearTimeout(toast.timer);toast.timer=setTimeout(()=>e.classList.remove("show"),1700)}
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const team=id=>state.teams.find(t=>t.id===id), name=id=>team(id)?.name||"—", done=m=>m.completed===true;
+const team=id=>state.teams.find(t=>t.id===id), name=id=>team(id)?.name||"—", done=m=>typeof m.completed==="boolean"?m.completed:(Number.isInteger(m.scoreA)&&Number.isInteger(m.scoreB));
 function teamGoalEvents(m,teamId){return (m.events||[]).filter(e=>e.type==="goal"&&e.teamId===teamId&&!e.playerId)}
 function attributedGoals(m,teamId){return (m.events||[]).filter(e=>e.type==="goal"&&e.playerId&&findPlayer(e.playerId)?.team.id===teamId).length}
 function setMatchScore(m,side,value){
@@ -74,14 +75,14 @@ function renderMatches(){
   const result=setMatchScore(m,inp.dataset.side,target);
   if(!result.ok){toast(result.message);renderAll();return}
   m.completed=false;renderAll();
-  if(!(await save("Счёт и протокол синхронизированы",true))){Object.assign(m,before);renderAll()}
+  if(!(await save("Счёт и протокол синхронизированы",true))){Object.assign(m,before);restoreLocalState();renderAll()}
  }));
  el.querySelectorAll("[data-clear]").forEach(b=>b.onclick=async()=>{
   let m=state.matches.find(x=>x.id===b.dataset.clear);if(!m)return;
   const hasGoals=(m.events||[]).some(e=>e.type==="goal");
   if(hasGoals&&!confirm("Сбросить счёт и удалить все голевые события этого матча? Карточки останутся."))return;
   const before=structuredClone(m);m.events=(m.events||[]).filter(e=>e.type!=="goal");m.scoreA=m.scoreB=null;m.completed=false;renderAll();
-  if(!(await save("Счёт матча сброшен",true))){Object.assign(m,before);renderAll()}
+  if(!(await save("Счёт матча сброшен",true))){Object.assign(m,before);restoreLocalState();renderAll()}
  });
 }
 function standings(){let rows=state.teams.map(t=>({id:t.id,name:t.name,I:0,V:0,N:0,P:0,ZM:0,PM:0,RM:0,O:0})),map=Object.fromEntries(rows.map(r=>[r.id,r]));state.matches.forEach(m=>{if(!done(m)||!map[m.a]||!map[m.b])return;let a=map[m.a],b=map[m.b];a.I++;b.I++;a.ZM+=m.scoreA;a.PM+=m.scoreB;b.ZM+=m.scoreB;b.PM+=m.scoreA;if(m.scoreA>m.scoreB){a.V++;b.P++;a.O+=3}else if(m.scoreA<m.scoreB){b.V++;a.P++;b.O+=3}else{a.N++;b.N++;a.O++;b.O++}});rows.forEach(r=>r.RM=r.ZM-r.PM);return rows.sort((a,b)=>b.O-a.O||b.RM-a.RM||b.ZM-a.ZM||a.name.localeCompare(b.name,"ru"))}
@@ -102,6 +103,27 @@ function cardCounts(playerId,type){return state.matches.reduce((n,m)=>n+(m.event
 function renderScorers(){let all=[];state.teams.forEach(t=>t.players.forEach(p=>all.push({t,p,goals:goalsFor(p.id),assists:assistsFor(p.id)})));all.sort((a,b)=>b.goals-a.goals||b.assists-a.assists||a.p.name.localeCompare(b.p.name,"ru"));let el=document.getElementById("scorersList");el.innerHTML=all.length?all.map((x,i)=>`<div class="scorer-row"><div class="scorer-rank">${i+1}</div><div><button class="scorer-name profile-name-button" data-player-profile="${x.p.id}">${esc(x.p.name)}</button><div class="scorer-team">${esc(x.t.name)}</div></div><div class="scorer-stats"><div class="scorer-stat scorer-goals"><span class="stat-icon stat-ball" aria-hidden="true">⚽</span><span class="stat-number">${x.goals}</span><span class="stat-caption">ГОЛЫ</span>${isAdmin?`<span class="stat-admin"><button class="goal-btn" data-goal="${x.p.id}" data-delta="-1" aria-label="Уменьшить голы">−</button><button class="goal-btn" data-goal="${x.p.id}" data-delta="1" aria-label="Добавить гол">+</button></span>`:""}</div><div class="scorer-stat scorer-assists"><span class="stat-icon stat-assist" aria-hidden="true">A</span><span class="stat-number">${x.assists}</span><span class="stat-caption">АССИСТЫ</span></div></div></div>`).join(""):'<div class="empty">Добавьте игроков в составы команд.</div>';el.querySelectorAll("[data-player-profile]").forEach(b=>b.onclick=()=>openPlayerProfile(b.dataset.playerProfile));el.querySelectorAll("[data-goal]").forEach(b=>b.onclick=()=>{let f=findPlayer(b.dataset.goal);if(f){f.player.goals=Math.max(0,f.player.goals+Number(b.dataset.delta));save();renderScorers()}})}
 function eventLabel(e){return e.type==="goal"?"Гол":e.type==="yellow"?"Жёлтая карточка":"Красная карточка"}
 function openProtocol(matchId){let m=state.matches.find(x=>x.id===matchId);if(!m)return;activeProtocolId=matchId;document.getElementById("protocolModal").hidden=false;renderProtocol(m)}
+function recentTeamMatches(teamId,currentMatchId){
+ return state.matches.filter(x=>x.id!==currentMatchId&&x.completed===true&&(x.a===teamId||x.b===teamId)).slice(-5).reverse();
+}
+function teamMatchOutcome(match,teamId){
+ const own=match.a===teamId?match.scoreA:match.scoreB,other=match.a===teamId?match.scoreB:match.scoreA;
+ return own>other?"В":own===other?"Н":"П";
+}
+function renderMatchInsights(match){
+ const renderForm=id=>{
+  const games=recentTeamMatches(id,match.id);
+  if(!games.length)return '<p class="match-insights-empty">Завершённых матчей пока нет</p>';
+  return '<div class="form-list">'+games.map(g=>{
+   const isA=g.a===id,opponent=name(isA?g.b:g.a),own=isA?g.scoreA:g.scoreB,other=isA?g.scoreB:g.scoreA,mark=teamMatchOutcome(g,id);
+   return '<div class="form-row"><span class="form-pill form-'+(mark==="В"?"win":mark==="Н"?"draw":"loss")+'">'+mark+'</span><span>'+esc(opponent)+'</span><strong>'+own+':'+other+'</strong></div>';
+  }).join("")+'</div>';
+ };
+ const h2h=state.matches.filter(g=>g.id!==match.id&&g.completed===true&&((g.a===match.a&&g.b===match.b)||(g.a===match.b&&g.b===match.a)));
+ let winsA=0,winsB=0,draws=0;
+ h2h.forEach(g=>{const aScore=g.a===match.a?g.scoreA:g.scoreB,bScore=g.a===match.a?g.scoreB:g.scoreA;if(aScore>bScore)winsA++;else if(aScore<bScore)winsB++;else draws++});
+ return '<section class="match-insights"><div class="insight-card"><h3>Последние матчи</h3><div class="insight-teams"><div><strong>'+esc(name(match.a))+'</strong>'+renderForm(match.a)+'</div><div><strong>'+esc(name(match.b))+'</strong>'+renderForm(match.b)+'</div></div></div><div class="insight-card"><h3>Очные встречи</h3>'+(h2h.length?'<div class="h2h-score"><strong>'+winsA+'</strong><span>Победы</span><strong>'+draws+'</strong><span>Ничьи</span><strong>'+winsB+'</strong></div><p class="match-insights-empty">Учтено встреч: '+h2h.length+'</p>':'<p class="match-insights-empty">В этом турнире команды ещё не встречались</p>')+'</div></section>';
+}
 function renderProtocol(m){
  let players=state.teams.filter(t=>t.id===m.a||t.id===m.b).flatMap(t=>t.players.map(p=>({team:t,player:p})));
  let opts=players.map(x=>'<option value="'+esc(x.player.id)+'">'+esc(x.player.name)+' · '+esc(x.team.name)+'</option>').join("");
@@ -115,7 +137,7 @@ function renderProtocol(m){
  const savePanel=isAdmin?'<button class="primary-button" id="saveMatchResult" type="button">Сохранить результат</button><section class="finish-match-panel"><p>После проверки счёта и событий отдельно отметь завершение матча:</p><button class="finish-match-button" id="finishMatchProtocol" type="button" '+(done(m)?"disabled":"")+'>'+(done(m)?"Матч окончен ✓":"Матч окончен")+'</button></section>':"";
  const yellowCount=(m.events||[]).filter(e=>e.type==="yellow").reduce((acc,e)=>{acc[e.playerId]=(acc[e.playerId]||0)+1;return acc},{}),discipline=(m.events||[]).filter(e=>e.type==="red"||(e.type==="yellow"&&yellowCount[e.playerId]>=2));
  const warnings=discipline.length?'<div class="discipline-notice"><strong>Дисциплинарные отметки</strong>'+discipline.map(e=>{const f=findPlayer(e.playerId);return '<p>'+(e.type==="red"?'🟥 Прямая красная — пропуск следующего матча.':'🟨🟨 Две жёлтые — игрок завершает участие в этом матче.')+' '+esc(f?.player.name||"Игрок")+'</p>'}).join("")+'</div>':'';
- document.getElementById("protocolContent").innerHTML='<div class="protocol-score"><button type="button" class="protocol-team-link" data-protocol-team="'+m.a+'"><span>'+esc(name(m.a))+'</span><small>СТАТИСТИКА ↗</small></button><strong>'+(m.scoreA??"–")+' : '+(m.scoreB??"–")+'</strong><button type="button" class="protocol-team-link" data-protocol-team="'+m.b+'"><span>'+esc(name(m.b))+'</span><small>СТАТИСТИКА ↗</small></button></div><div class="match-centre-stats"><div><strong>'+((m.events||[]).filter(e=>e.type==="goal").length)+'</strong><span>Голы</span></div><div><strong>'+((m.events||[]).filter(e=>e.type==="yellow").length)+'</strong><span>Жёлтые</span></div><div><strong>'+((m.events||[]).filter(e=>e.type==="red").length)+'</strong><span>Красные</span></div></div>'+warnings+'<h3>Хронология матча</h3>'+(events||'<p class="empty">Событий пока нет.</p>')+adminForm+savePanel+'<p class="protocol-footnote">Все голы, внесённые через счёт, отражаются в хронологии как голы без указания автора. Для персональной статистики указывайте автора и ассистента при добавлении гола. Голы, внесённые только через счёт, не учитываются в статистике ассистов.</p>';
+ document.getElementById("protocolContent").innerHTML='<div class="protocol-score"><button type="button" class="protocol-team-link" data-protocol-team="'+m.a+'"><span>'+esc(name(m.a))+'</span><small>СТАТИСТИКА ↗</small></button><strong>'+(m.scoreA??"–")+' : '+(m.scoreB??"–")+'</strong><button type="button" class="protocol-team-link" data-protocol-team="'+m.b+'"><span>'+esc(name(m.b))+'</span><small>СТАТИСТИКА ↗</small></button></div>'+renderMatchInsights(m)+'<div class="match-centre-stats"><div><strong>'+((m.events||[]).filter(e=>e.type==="goal").length)+'</strong><span>Голы</span></div><div><strong>'+((m.events||[]).filter(e=>e.type==="yellow").length)+'</strong><span>Жёлтые</span></div><div><strong>'+((m.events||[]).filter(e=>e.type==="red").length)+'</strong><span>Красные</span></div></div>'+warnings+'<h3>Хронология матча</h3>'+(events||'<p class="empty">Событий пока нет.</p>')+adminForm+savePanel+'<p class="protocol-footnote">Все голы, внесённые через счёт, отражаются в хронологии как голы без указания автора. Для персональной статистики указывайте автора и ассистента при добавлении гола. Голы, внесённые только через счёт, не учитываются в статистике ассистов.</p>';
  document.querySelectorAll("[data-protocol-team]").forEach(b=>b.onclick=()=>{const id=b.dataset.protocolTeam;document.getElementById("protocolModal").hidden=true;activeProtocolId=null;openTeamProfile(id)});
  const saveButton=document.getElementById("saveMatchResult");
  if(saveButton)saveButton.onclick=async()=>{
@@ -128,7 +150,7 @@ function renderProtocol(m){
   if(done(m))return;
   const before=structuredClone(m);m.scoreA=m.scoreA??0;m.scoreB=m.scoreB??0;m.completed=true;
   finishButton.disabled=true;finishButton.textContent="Сохраняем…";
-  if(!(await save("Матч окончен",true))){Object.assign(m,before);renderAll();renderProtocol(m);return}
+  if(!(await save("Матч окончен",true))){Object.assign(m,before);restoreLocalState();renderAll();renderProtocol(m);return}
   renderAll();renderProtocol(m);
  };
  const form=document.getElementById("eventForm");
@@ -145,7 +167,7 @@ function renderProtocol(m){
   m.events.push(ev);m.completed=false;
   if(type==="goal"){if(scorer?.team.id===m.a)m.scoreA=(m.scoreA??0)+1;else if(scorer?.team.id===m.b)m.scoreB=(m.scoreB??0)+1}
   if(submit){submit.disabled=true;submit.textContent="Сохраняем событие…"}
-  if(!(await save("Событие сохранено в протоколе",true))){Object.assign(m,before);renderAll();renderProtocol(m);return}
+  if(!(await save("Событие сохранено в протоколе",true))){Object.assign(m,before);restoreLocalState();renderAll();renderProtocol(m);return}
   renderAll();renderProtocol(m);
  };
  document.querySelectorAll("[data-remove-event]").forEach(b=>b.onclick=async()=>{
@@ -153,7 +175,7 @@ function renderProtocol(m){
   const before=structuredClone(m);
   if(ev.type==="goal"){const f=findPlayer(ev.playerId),tid=f?.team.id||ev.teamId;if(tid===m.a)m.scoreA=Math.max(0,(m.scoreA??0)-1);else if(tid===m.b)m.scoreB=Math.max(0,(m.scoreB??0)-1)}
   m.events.splice(index,1);m.completed=false;
-  if(!(await save("Событие удалено из протокола",true))){Object.assign(m,before);renderAll();renderProtocol(m);return}
+  if(!(await save("Событие удалено из протокола",true))){Object.assign(m,before);restoreLocalState();renderAll();renderProtocol(m);return}
   renderAll();renderProtocol(m);
  });
 }
