@@ -171,6 +171,7 @@ function renderProtocol(m){
   renderAll();renderProtocol(m);
  };
  document.querySelectorAll("[data-remove-event]").forEach(b=>b.onclick=async()=>{
+  if(b.disabled)return;b.disabled=true;
   const index=Number(b.dataset.removeEvent),ev=m.events[index];if(!ev)return;
   const before=structuredClone(m);
   if(ev.type==="goal"){const f=findPlayer(ev.playerId),tid=f?.team.id||ev.teamId;if(tid===m.a)m.scoreA=Math.max(0,(m.scoreA??0)-1);else if(tid===m.b)m.scoreB=Math.max(0,(m.scoreB??0)-1)}
